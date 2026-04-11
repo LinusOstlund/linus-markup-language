@@ -1,13 +1,51 @@
 import Cocoa
 import Carbon
 
+// MARK: - Pure Logic (testable)
+
+func lmlXmlEscape(_ str: String) -> String {
+    str
+        .replacingOccurrences(of: "&",  with: "&amp;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "<",  with: "&lt;")
+        .replacingOccurrences(of: ">",  with: "&gt;")
+}
+
+func lmlSanitizeActionType(_ raw: String) -> String {
+    let lowered = raw.lowercased()
+    // Replace any non-alphanumeric character with underscore
+    let replaced = lowered.map { $0.isLetter || $0.isNumber ? $0 : Character("_") }
+    // Collapse consecutive underscores and trim leading/trailing ones
+    var result = String(replaced)
+    while result.contains("__") {
+        result = result.replacingOccurrences(of: "__", with: "_")
+    }
+    result = result.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    // Must start with a letter
+    guard let firstLetter = result.firstIndex(where: { $0.isLetter }) else { return "" }
+    return String(result[firstLetter...])
+}
+
+func lmlWrapInXml(selectedText: String, actionType: String, comment: String) -> String {
+    let escaped = lmlXmlEscape(comment)
+    return "<\(actionType) comment=\"\(escaped)\">\(selectedText)</\(actionType)>"
+}
+
+func lmlFormatPreview(_ text: String, maxLength: Int = 50) -> String {
+    let raw     = text.prefix(maxLength)
+    let oneLine = raw.replacingOccurrences(of: "\n", with: " ")
+                     .replacingOccurrences(of: "\r", with: " ")
+    let suffix  = text.count > maxLength ? "\u{2026}" : ""
+    return "\u{201c}\(oneLine)\(suffix)\u{201d}"
+}
+
 // MARK: - Constants
 
 private let kRecentTagsKey   = "recentActionTypes"
 private let kMaxRecentTags   = 10
 private let kHotkeyKeycode   = UInt32(37)  // L
-// Cmd + Option + Control
-private let kHotkeyModifiers = UInt32(cmdKey | optionKey | controlKey)
+// Control + Shift
+private let kHotkeyModifiers = UInt32(controlKey | shiftKey)
 
 // MARK: - Carbon Hotkey Callback
 
@@ -24,7 +62,7 @@ private func hotkeyEventHandler(
     GetEventParameter(
         event,
         UInt32(kEventParamDirectObject),
-        typeEventHotKeyID,
+        EventParamType(typeEventHotKeyID),
         nil,
         MemoryLayout<EventHotKeyID>.size,
         nil,
@@ -169,7 +207,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             nil
         )
 
-        var hotkeyID = EventHotKeyID(signature: 0x4C4D4C21, id: 1)  // 'LML!'
+        let hotkeyID = EventHotKeyID(signature: 0x4C4D4C21, id: 1)  // 'LML!'
         RegisterEventHotKey(kHotkeyKeycode, kHotkeyModifiers, hotkeyID,
                             GetApplicationEventTarget(), 0, &hotKeyRef)
     }
@@ -270,11 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - XML Helpers
 
     private func xmlEscape(_ str: String) -> String {
-        str
-            .replacingOccurrences(of: "&",  with: "&amp;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "<",  with: "&lt;")
-            .replacingOccurrences(of: ">",  with: "&gt;")
+        lmlXmlEscape(str)
     }
 
     // MARK: - UserDefaults Helpers
@@ -322,14 +356,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// MARK: - Fuzzy Matching
+
+/// Returns a score > 0 if `query` fuzzy-matches `candidate` (all chars in order), or nil.
+/// Higher scores = better match. Consecutive char runs and prefix matches score higher.
+func lmlFuzzyMatch(query: String, candidate: String) -> Int? {
+    guard !query.isEmpty else { return 1 }  // empty query matches everything
+    let q = Array(query.lowercased())
+    let c = Array(candidate.lowercased())
+    var qi = 0
+    var score = 0
+    var consecutive = 0
+    var lastMatchIdx = -2
+
+    for ci in 0..<c.count {
+        if qi < q.count && c[ci] == q[qi] {
+            qi += 1
+            // Bonus for consecutive matches
+            consecutive = (ci == lastMatchIdx + 1) ? consecutive + 1 : 1
+            score += consecutive
+            // Bonus for matching at start
+            if ci == qi - 1 { score += 2 }
+            lastMatchIdx = ci
+        }
+    }
+    return qi == q.count ? score : nil
+}
+
 // MARK: - InputPanelController
 
-class InputPanelController: NSObject, NSWindowDelegate {
+class InputPanelController: NSObject, NSWindowDelegate, NSTextFieldDelegate,
+                             NSTableViewDataSource, NSTableViewDelegate {
 
     private var panel: NSPanel!
-    private var comboBox: NSComboBox!
+    private var actionField: NSTextField!
     private var commentField: NSTextField!
     private var didComplete = false
+
+    // Fuzzy dropdown
+    private var dropdownWindow: NSWindow?
+    private var tableView: NSTableView!
+    private var filteredTags: [(tag: String, score: Int)] = []
 
     private let selectedText: String
     private let prefilledTag: String?
@@ -369,7 +436,7 @@ class InputPanelController: NSObject, NSWindowDelegate {
         buildUI(in: panel.contentView!, width: w, height: h)
 
         panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(comboBox)
+        panel.makeFirstResponder(actionField)
     }
 
     // MARK: - UI Construction
@@ -386,38 +453,37 @@ class InputPanelController: NSObject, NSWindowDelegate {
         let commentFieldY:  CGFloat = btnY + btnH + 14
         let commentLabelH:  CGFloat = 17
         let commentLabelY:  CGFloat = commentFieldY + commentFieldH + 4
-        let comboH:         CGFloat = 26
-        let comboY:         CGFloat = commentLabelY + commentLabelH + 4
+        let fieldH:         CGFloat = 22
+        let fieldY:         CGFloat = commentLabelY + commentLabelH + 4
         let tagLabelH:      CGFloat = 17
-        let tagLabelY:      CGFloat = comboY + comboH + 4
+        let tagLabelY:      CGFloat = fieldY + fieldH + 4
         let previewY:       CGFloat = tagLabelY + tagLabelH + 8
 
         // Preview of selected text
         let raw     = selectedText.prefix(50)
         let oneLine = raw.replacingOccurrences(of: "\n", with: " ")
                          .replacingOccurrences(of: "\r", with: " ")
-        let suffix  = selectedText.count > 50 ? "…" : ""
-        let previewLabel = NSTextField(labelWithString: ""\(oneLine)\(suffix)"")
+        let suffix  = selectedText.count > 50 ? "\u{2026}" : ""
+        let previewLabel = NSTextField(labelWithString: "\u{201c}\(oneLine)\(suffix)\u{201d}")
         previewLabel.frame           = NSRect(x: p, y: previewY, width: fw, height: h - previewY - p)
         previewLabel.font            = NSFont.systemFont(ofSize: 11)
-        previewLabel.textColor       = .secondaryLabelColor
+        previewLabel.textColor       = NSColor.secondaryLabelColor
         previewLabel.lineBreakMode   = .byTruncatingTail
         previewLabel.maximumNumberOfLines = 1
         view.addSubview(previewLabel)
 
-        // "Action type" label + combo box
+        // "Action type" label + text field with fuzzy autocomplete
         let tagLabel = NSTextField(labelWithString: "Action type")
         tagLabel.frame = NSRect(x: p, y: tagLabelY, width: fw, height: tagLabelH)
         tagLabel.font  = NSFont.systemFont(ofSize: 12, weight: .medium)
         view.addSubview(tagLabel)
 
-        comboBox = NSComboBox()
-        comboBox.frame              = NSRect(x: p, y: comboY, width: fw, height: comboH)
-        comboBox.placeholderString  = "action_type"
-        comboBox.addItems(withObjectValues: recentTags)
-        comboBox.numberOfVisibleItems = min(max(recentTags.count, 1), 10)
-        if let tag = prefilledTag { comboBox.stringValue = tag }
-        view.addSubview(comboBox)
+        actionField = NSTextField()
+        actionField.frame              = NSRect(x: p, y: fieldY, width: fw, height: fieldH)
+        actionField.placeholderString  = "e.g. find source, improve humour, make concise"
+        actionField.delegate           = self
+        if let tag = prefilledTag { actionField.stringValue = tag }
+        view.addSubview(actionField)
 
         // "Comment" label + text field
         let commentLabel = NSTextField(labelWithString: "Comment")
@@ -427,7 +493,7 @@ class InputPanelController: NSObject, NSWindowDelegate {
 
         commentField = NSTextField()
         commentField.frame             = NSRect(x: p, y: commentFieldY, width: fw, height: commentFieldH)
-        commentField.placeholderString = "comment"
+        commentField.placeholderString = "Free text instruction (optional)"
         view.addSubview(commentField)
 
         // Cancel button (Escape)
@@ -444,10 +510,124 @@ class InputPanelController: NSObject, NSWindowDelegate {
         view.addSubview(okBtn)
     }
 
+    // MARK: - Fuzzy Dropdown
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField,
+              field === actionField else { return }
+        updateDropdown(query: field.stringValue)
+    }
+
+    private func updateDropdown(query: String) {
+        // Score and filter recent tags
+        filteredTags = recentTags.compactMap { tag in
+            guard let score = lmlFuzzyMatch(query: query, candidate: tag) else { return nil }
+            return (tag: tag, score: score)
+        }.sorted { $0.score > $1.score }
+
+        if filteredTags.isEmpty {
+            hideDropdown()
+            return
+        }
+
+        tableView?.reloadData()
+
+        if dropdownWindow == nil {
+            showDropdown()
+        } else {
+            positionDropdown()
+        }
+    }
+
+    private func showDropdown() {
+        tableView = NSTableView()
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tag"))
+        col.title = ""
+        tableView.addTableColumn(col)
+        tableView.headerView     = nil
+        tableView.dataSource     = self
+        tableView.delegate       = self
+        tableView.rowHeight      = 22
+        tableView.target         = self
+        tableView.doubleAction   = #selector(dropdownRowSelected)
+        tableView.selectionHighlightStyle = .regular
+
+        let scroll = NSScrollView()
+        scroll.documentView       = tableView
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers  = true
+
+        let win = NSWindow(contentRect: .zero, styleMask: .borderless,
+                           backing: .buffered, defer: false)
+        win.contentView = scroll
+        win.isOpaque    = false
+        win.hasShadow   = true
+        win.level       = .floating
+
+        dropdownWindow = win
+        positionDropdown()
+        panel.addChildWindow(win, ordered: .above)
+        win.orderFront(nil)
+        tableView.reloadData()
+    }
+
+    private func positionDropdown() {
+        guard let win = dropdownWindow else { return }
+        // Position below the action field
+        let fieldFrame = actionField.convert(actionField.bounds, to: nil)
+        let screenRect = panel.convertToScreen(fieldFrame)
+        let rowCount   = min(filteredTags.count, 6)
+        let h          = CGFloat(rowCount) * 22 + 4
+        let rect = NSRect(x: screenRect.origin.x,
+                          y: screenRect.origin.y - h,
+                          width: screenRect.width,
+                          height: h)
+        win.setFrame(rect, display: true)
+    }
+
+    private func hideDropdown() {
+        if let win = dropdownWindow {
+            panel.removeChildWindow(win)
+            win.orderOut(nil)
+        }
+        dropdownWindow = nil
+    }
+
+    @objc private func dropdownRowSelected() {
+        let row = tableView.selectedRow
+        guard row >= 0, row < filteredTags.count else { return }
+        actionField.stringValue = filteredTags[row].tag
+        hideDropdown()
+        panel.makeFirstResponder(commentField)
+    }
+
+    // MARK: - NSTableViewDataSource
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        filteredTags.count
+    }
+
+    // MARK: - NSTableViewDelegate
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?,
+                   row: Int) -> NSView? {
+        let id = NSUserInterfaceItemIdentifier("TagCell")
+        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTextField)
+                   ?? {
+                       let tf = NSTextField(labelWithString: "")
+                       tf.identifier = id
+                       tf.font = NSFont.systemFont(ofSize: 13)
+                       return tf
+                   }()
+        cell.stringValue = filteredTags[row].tag
+        return cell
+    }
+
     // MARK: - Actions
 
     @objc private func okPressed() {
-        let raw       = comboBox.stringValue.trimmingCharacters(in: .whitespaces)
+        hideDropdown()
+        let raw       = actionField.stringValue.trimmingCharacters(in: .whitespaces)
         let sanitized = sanitizeActionType(raw)
 
         guard !sanitized.isEmpty else {
@@ -466,13 +646,14 @@ class InputPanelController: NSObject, NSWindowDelegate {
     }
 
     @objc private func cancelPressed() {
+        hideDropdown()
         didComplete = true
         panel.orderOut(nil)
         onCancel()
     }
 
     func windowWillClose(_ notification: Notification) {
-        // Handle the X button; avoid double-firing if OK/Cancel already called
+        hideDropdown()
         if !didComplete {
             didComplete = true
             onCancel()
@@ -481,11 +662,8 @@ class InputPanelController: NSObject, NSWindowDelegate {
 
     // MARK: - Helpers
 
-    /// Keeps only [a-zA-Z0-9_-] and ensures the result starts with a letter.
     private func sanitizeActionType(_ raw: String) -> String {
-        let filtered = raw.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
-        guard let firstLetter = filtered.firstIndex(where: { $0.isLetter }) else { return "" }
-        return String(filtered[firstLetter...])
+        lmlSanitizeActionType(raw)
     }
 
     private func shakePanel() {
