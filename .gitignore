@@ -1,0 +1,9 @@
+# Build artifacts
+LML
+LMLTests
+
+# macOS
+.DS_Store
+
+# Scratch
+todos.md
