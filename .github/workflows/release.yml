@@ -4,22 +4,37 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
       - name: Build
-        run: make build
+        run: swift build -c release
 
       - name: Test
-        run: make test
+        run: swift test
+
+      - name: Package binary
+        run: |
+          cp .build/release/LML ./LML
+          tar czf LML-${{ github.ref_name }}-arm64.tar.gz LML
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create ${{ github.ref_name }} --title "${{ github.ref_name }}" --generate-notes
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            LML-${{ github.ref_name }}-arm64.tar.gz
 
   update-tap:
     needs: build-and-release

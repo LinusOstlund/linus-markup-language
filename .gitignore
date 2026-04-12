@@ -1,6 +1,8 @@
 # Build artifacts
-LML
-LMLTests
+/LML
+/LMLTests
+/.build/
+Package.resolved
 
 # macOS
 .DS_Store

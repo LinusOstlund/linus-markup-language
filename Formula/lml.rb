@@ -7,15 +7,17 @@ class Lml < Formula
   head "https://github.com/LinusOstlund/linus-markup-language.git", branch: "main"
 
   depends_on :macos
+  depends_on xcode: ["14.0", :build]
 
   def install
-    system "swiftc", "LML.swift", "-framework", "Cocoa", "-framework", "Carbon", "-o", "lml"
-    bin.install "lml"
+    system "swift", "build", "-c", "release", "--disable-sandbox"
+    bin.install ".build/release/LML" => "lml"
   end
 
   def caveats
     <<~EOS
-      LML requires Accessibility permission to read and replace selected text.
+      LML requires macOS 14 (Sonoma) or later and Accessibility permission
+      to read and replace selected text.
       Grant access in: System Settings -> Privacy & Security -> Accessibility
 
       Start LML manually with:  lml
