@@ -13,18 +13,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
-
       - name: Build
         run: swift build -c release
 
       - name: Test
-        run: swift test
+        run: swift run LMLTestRunner
 
       - name: Package binary
         run: |
           cp .build/release/LML ./LML
+          codesign -fs - ./LML
           tar czf LML-${{ github.ref_name }}-arm64.tar.gz LML
 
       - name: Create GitHub Release
@@ -36,31 +34,14 @@ jobs:
             --generate-notes \
             LML-${{ github.ref_name }}-arm64.tar.gz
 
-  update-tap:
-    needs: build-and-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Compute SHA256
+      - name: Compute tap formula update
         id: sha
         run: |
           SHA=$(curl -sL "https://github.com/LinusOstlund/linus-markup-language/archive/refs/tags/${{ github.ref_name }}.tar.gz" | shasum -a 256 | awk '{print $1}')
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout tap repo
-        uses: actions/checkout@v4
-        with:
-          repository: LinusOstlund/homebrew-tap
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}
-
-      - name: Patch formula
-        run: |
-          sed -i 's|archive/refs/tags/v[^"]*|archive/refs/tags/${{ github.ref_name }}.tar.gz|' Formula/lml.rb
-          sed -i 's|sha256 ".*"|sha256 "${{ steps.sha.outputs.sha256 }}"|' Formula/lml.rb
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/lml.rb
-          git commit -m "chore: bump lml to ${{ github.ref_name }}"
-          git push
+          echo ""
+          echo "=== To update the Homebrew tap, run: ==="
+          echo "cd /path/to/homebrew-tap"
+          echo "# Update Formula/lml.rb:"
+          echo "#   url → .../archive/refs/tags/${{ github.ref_name }}.tar.gz"
+          echo "#   sha256 → $SHA"
+          echo "git commit -am 'chore: bump lml to ${{ github.ref_name }}' && git push"
