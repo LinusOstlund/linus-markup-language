@@ -40,12 +40,12 @@ public struct InputPanelView: View {
                 if viewModel.showDropdown {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(viewModel.filteredTags, id: \.self) { tag in
+                            ForEach(viewModel.filteredTags) { match in
                                 Button {
-                                    viewModel.selectTag(tag)
+                                    viewModel.selectTag(match)
                                     focusedField = .comment
                                 } label: {
-                                    Text(tag)
+                                    Text(highlightedTag(match))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.vertical, 4)
                                         .padding(.horizontal, 6)
@@ -98,5 +98,24 @@ public struct InputPanelView: View {
             value: viewModel.shaking
         )
         .onAppear { focusedField = .actionType }
+    }
+
+    /// Builds an `AttributedString` where matched characters are bold + accent
+    /// color and unmatched characters are secondary gray.
+    private func highlightedTag(_ match: FuzzyMatch) -> AttributedString {
+        var result = AttributedString(match.tag)
+        result.foregroundColor = .secondary
+        result.font = .system(size: 13)
+
+        for (offset, _) in match.tag.enumerated() {
+            if match.matchedIndices.contains(offset) {
+                let start = result.index(result.startIndex, offsetByCharacters: offset)
+                let end = result.index(start, offsetByCharacters: 1)
+                result[start..<end].foregroundColor = .accentColor
+                result[start..<end].font = .system(size: 13, weight: .semibold)
+            }
+        }
+
+        return result
     }
 }

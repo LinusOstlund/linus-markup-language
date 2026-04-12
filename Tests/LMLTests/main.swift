@@ -121,12 +121,35 @@ section("FuzzyMatcher.match") {
     assert(FuzzyMatcher.match(query: "toolong", candidate: "to") == nil, "query longer than candidate")
 }
 
+section("FuzzyMatcher.matchWithIndices") {
+    let result1 = FuzzyMatcher.matchWithIndices(query: "ta", candidate: "task")
+    assert(result1 != nil, "prefix match returns result")
+    assertEqual(result1!.indices, Set([0, 1]), "prefix indices correct")
+
+    let result2 = FuzzyMatcher.matchWithIndices(query: "tk", candidate: "task")
+    assert(result2 != nil, "subsequence match returns result")
+    assertEqual(result2!.indices, Set([0, 3]), "subsequence indices correct")
+
+    let result3 = FuzzyMatcher.matchWithIndices(query: "", candidate: "task")
+    assert(result3 != nil, "empty query matches")
+    assert(result3!.indices.isEmpty, "empty query has no matched indices")
+
+    assert(FuzzyMatcher.matchWithIndices(query: "xyz", candidate: "task") == nil, "no match returns nil")
+}
+
 section("FuzzyMatcher.rank") {
     let result = FuzzyMatcher.rank(query: "ta", candidates: ["my_task_thing", "task", "xxxta"])
     assertEqual(result.first ?? "", "task", "best match first")
 
     let noMatch = FuzzyMatcher.rank(query: "xyz", candidates: ["task", "note"])
     assert(noMatch.isEmpty, "no matches filtered out")
+}
+
+section("FuzzyMatcher.rankWithMatches") {
+    let matches = FuzzyMatcher.rankWithMatches(query: "ta", candidates: ["task", "xxxta"])
+    assertEqual(matches.count, 2, "both match")
+    assertEqual(matches[0].tag, "task", "best match first")
+    assert(!matches[0].matchedIndices.isEmpty, "has match indices")
 }
 
 // MARK: - Preview

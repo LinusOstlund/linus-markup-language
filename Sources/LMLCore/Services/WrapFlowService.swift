@@ -35,6 +35,9 @@ public final class WrapFlowService {
     private func execute(prefilledTag: String?) async {
         let savedClipboard = clipboard.read()
 
+        // Remember which app had focus so we can return to it after the panel.
+        let originalApp = NSWorkspace.shared.frontmostApplication
+
         // 1. Simulate ⌘C in the frontmost app
         clipboard.clear()
         clipboard.simulateCopy()
@@ -53,12 +56,17 @@ public final class WrapFlowService {
         NSApp.activate(ignoringOtherApps: true)
 
         guard let (actionType, comment) = await presentPanel?(selectedText, prefilledTag) else {
-            // User cancelled
+            // User cancelled — return focus to the original app
+            originalApp?.activate()
             restore(savedClipboard)
             return
         }
 
-        // 4. Wrap the text and paste it back
+        // 4. Return focus to the original app before pasting
+        originalApp?.activate()
+        try? await Task.sleep(for: .milliseconds(150))
+
+        // 5. Wrap the text and paste it back
         let xml = XMLWrapper.wrap(
             selectedText: selectedText,
             actionType: actionType,
@@ -67,11 +75,11 @@ public final class WrapFlowService {
         clipboard.write(xml)
         clipboard.simulatePaste()
 
-        // 5. Wait for the paste to land, then restore the original clipboard
+        // 6. Wait for the paste to land, then restore the original clipboard
         try? await Task.sleep(for: .milliseconds(300))
         restore(savedClipboard)
 
-        // 6. Record the tag for the recent-tags menu
+        // 7. Record the tag for the recent-tags menu
         tags.record(Tag(name: actionType))
     }
 

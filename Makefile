@@ -9,6 +9,7 @@ all: build
 build:
 	swift build -c release
 	cp $(RELEASE) ./$(APP)
+	codesign -fs - ./$(APP)
 
 test:
 	swift run $(TESTS)

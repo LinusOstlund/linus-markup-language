@@ -10,7 +10,7 @@ public final class InputPanelViewModel: ObservableObject {
 
     @Published public var actionType: String = ""
     @Published public var comment: String = ""
-    @Published public var filteredTags: [String] = []
+    @Published public var filteredTags: [FuzzyMatch] = []
     @Published public var showDropdown: Bool = false
     @Published public var shaking: Bool = false
 
@@ -65,13 +65,18 @@ public final class InputPanelViewModel: ObservableObject {
     // MARK: - Fuzzy dropdown
 
     private func updateDropdown(query: String) {
-        let ranked = FuzzyMatcher.rank(query: query, candidates: recentTags)
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            filteredTags = []
+            showDropdown = false
+            return
+        }
+        let ranked = FuzzyMatcher.rankWithMatches(query: query, candidates: recentTags)
         filteredTags = ranked
         showDropdown = !ranked.isEmpty
     }
 
-    public func selectTag(_ tag: String) {
-        actionType = tag
+    public func selectTag(_ match: FuzzyMatch) {
+        actionType = match.tag
         showDropdown = false
     }
 
