@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="#e5e5e5">
+  <!-- Light variant for dark backgrounds -->
+
+  <polygon points="
+    26,11
+    10,48
+    14,48
+    31,15
+    32,13
+  "/>
+
+  <polygon points="
+    32,13
+    33,15
+    51,48
+    56,48
+    35,12
+  "/>
+
+  <circle cx="24" cy="55" r="2.3"/>
+  <circle cx="32" cy="55" r="2.3"/>
+  <circle cx="40" cy="55" r="2.3"/>
+</svg>

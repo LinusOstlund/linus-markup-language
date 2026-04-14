@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="#1a1a1a">
+  <!--
+    Proofreader's caret (insertion mark) with stet dots.
+    Calligraphic: left stroke thinner, right stroke heavier.
+    Left tip extends subtly leftward, evoking a < bracket.
+  -->
+
+  <!-- Left stroke (thinner, with bracket hint) -->
+  <polygon points="
+    26,11
+    10,48
+    14,48
+    31,15
+    32,13
+  "/>
+
+  <!-- Right stroke (heavier — calligraphic pressure) -->
+  <polygon points="
+    32,13
+    33,15
+    51,48
+    56,48
+    35,12
+  "/>
+
+  <!-- Stet dots: ∴ "let it stand" -->
+  <circle cx="24" cy="55" r="2.3"/>
+  <circle cx="32" cy="55" r="2.3"/>
+  <circle cx="40" cy="55" r="2.3"/>
+</svg>
