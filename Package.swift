@@ -14,7 +14,8 @@ let package = Package(
         .executableTarget(
             name: "LML",
             dependencies: ["LMLCore"],
-            path: "Sources/LML"
+            path: "Sources/LML",
+            exclude: ["Resources"]
         ),
         // Standalone test runner that works without Xcode / XCTest.
         .executableTarget(

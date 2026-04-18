@@ -1,5 +1,6 @@
 # Build artifacts
 /LML
+/LML.app
 /LMLTests
 /.build/
 Package.resolved
